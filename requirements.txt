@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+requests
+PyPDF2
+streamlit
+python-multipart
+ollama
+qdrant-client
+pandas
+openpyxl
