@@ -2,12 +2,21 @@
 import streamlit as st
 import requests
 import os
+import logging
+from traceloop.sdk import Traceloop
+
+Traceloop.init(disable_batch=True)
 
 # Fetching service URLs from environment variables with defaults
 UPLOAD_SERVICE_URL = os.getenv("UPLOAD_SERVICE_URL", "http://localhost:8002/upload")
 INDEX_SERVICE_URL = os.getenv("INDEX_SERVICE_URL", "http://localhost:8000")
 SEARCH_SERVICE_URL = os.getenv("SEARCH_SERVICE_URL", "http://localhost:8004/search_candidates")
-LLM_SERVICE_URL = os.getenv("LLM_SERVICE_URL", "http://localhost:8005/generate")
+RESPONSE_SERVICE_URL = os.getenv("RESPONSE_SERVICE_URL", "http://localhost:8006/generate_response")
+QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME", "store_embeddings")
+TRACELOOP_API_KEY = os.getenv("TRACELOOP_API_KEY")
+
+
+logging.basicConfig(filename='debug.log', level=logging.DEBUG)
 
 st.title("AI-Powered Candidate Screening System")
 
@@ -25,19 +34,19 @@ def upload_file():
 
 upload_file()
 
-# Section 2: File Upload for Excel
-st.header("Upload Excel Files")
-def upload_excel_file():
-    excel_file = st.file_uploader("Upload Excel files", type=["xlsx", "xls"])
-    if excel_file is not None:
-        files = {"file": excel_file}
-        response = requests.post(f"{INDEX_SERVICE_URL}/index_excel", files=files)
+# Section 2: Upload JSON File for Candidates
+st.header("Upload Candidate JSON File")
+def upload_json_file():
+    json_file = st.file_uploader("Upload JSON files", type=["json"])
+    if json_file is not None:
+        files = {"file": json_file}
+        response = requests.post(f"{INDEX_SERVICE_URL}/index_json", files=files)
         if response.status_code == 200:
-            st.success(f"Excel file '{excel_file.name}' indexed successfully.")
+            st.success(f"JSON file '{json_file.name}' indexed successfully.")
         else:
-            st.error("Failed to index the Excel file.")
+            st.error("Failed to index the JSON file.")
 
-upload_excel_file()
+upload_json_file()
 
 # Section 3: Display Indexed Files
 st.header("Indexed Files")
@@ -68,28 +77,50 @@ def trigger_indexing():
 
 trigger_indexing()
 
-# Section 5: Chat Interface
+# Section: Chat Interface
 st.header("Chat with the Screening Assistant")
+
+@workflow("chat_with_llm")
 def chat_with_llm():
     user_query = st.text_input("Ask a question about the candidates or resumes:")
     if st.button("Send Query") and user_query:
-        # Call the LLM service for general queries
-        llm_response = requests.post(LLM_SERVICE_URL, json={"prompt": user_query})
-        if llm_response.status_code == 200:
-            response_text = llm_response.json().get("response", "No response")
-            st.write("Assistant:", response_text)
-        else:
-            st.error("Failed to get a response from the assistant.")
-
-        # Check if the query is about resumes and trigger the search service
-        if "resume" in user_query.lower() or "candidate" in user_query.lower():
-            search_response = requests.get(SEARCH_SERVICE_URL, params={"query": user_query})
+        try:
+            # Step 1: Call the search service
+            search_response = requests.get(SEARCH_SERVICE_URL, params={"query": user_query, "collection": QDRANT_COLLECTION_NAME})
             if search_response.status_code == 200:
-                candidates = search_response.json().get("candidates", [])
-                st.write("Top candidates:")
+                results = search_response.json().get("candidates", [])
+                candidates = [
+                    {
+                        "id": res["id"],
+                        "score": res["score"],
+                        "name": res.get("payload", {}).get("Name", "N/A"),
+                        "job_title": res.get("payload", {}).get("Job title", "N/A"),
+                        "location": res.get("payload", {}).get("Job location", "N/A"),
+                        "summary": res.get("payload", {}).get("Summary", "N/A"),
+                        "keywords": res.get("payload", {}).get("Keywords", "N/A"),
+                        "experience": res.get("payload", {}).get("Experiences", "N/A")
+                    }
+                    for res in results
+                ]
+                st.write("Top candidates retrieved:")
                 for candidate in candidates:
-                    st.write(f"ID: {candidate['id']}, Score: {candidate['score']}")
+                    st.write(f"ID: {candidate['id']}, Name: {candidate['name']}, Job Title: {candidate['job_title']}, Score: {candidate['score']}")
             else:
                 st.error("Failed to retrieve candidates.")
+                return
+
+            # Step 2: Call the response service with the user query and search results
+            
+            response_payload = {"query": user_query, "candidates": candidates}
+            print(f"Response payload: {response_payload}")
+            llm_response = requests.post(RESPONSE_SERVICE_URL, json=response_payload)
+            if llm_response.status_code == 200:
+                response_text = llm_response.json().get("response", "No response generated.")
+                st.write("Assistant:", response_text)
+            else:
+                st.error("Failed to get a response from the assistant.")
+
+        except requests.RequestException as e:
+            st.error(f"An error occurred: {e}")
 
 chat_with_llm()

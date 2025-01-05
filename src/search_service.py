@@ -29,7 +29,7 @@ async def search_candidates(query: str = Query(..., description="Search query to
     try:
         logging.info("Received search request")
         
-        # Call the embedding service to generate an embedding for the query
+        # Step 1: Call the embedding service to generate an embedding for the query
         embedding_payload = {"texts": [query]}
         logging.debug(f"Embedding payload: {embedding_payload}")
         embedding_response = requests.post(MODELS_SERVICE_URL, json=embedding_payload)
@@ -37,44 +37,34 @@ async def search_candidates(query: str = Query(..., description="Search query to
         embedding = embedding_response.json().get("embeddings")[0]
         logging.debug(f"Generated embedding: {embedding}")
 
-        # Search in Qdrant using the embedding
+        # Step 2: Search in Qdrant using the embedding
         search_payload = {
             "vector": embedding,
-            "top": top_n
+            "top": top_n,
+            "with_payload": True,
         }
         logging.debug(f"Search payload: {search_payload}")
 
-        collection_name = "store_embeddings"  # Replace with the actual collection name
+        collection_name = "candidates_collection"  # Replace with the actual collection name
         headers = {"Authorization": f"Bearer {QDRANT_API_KEY}"}
         response = requests.post(f"{QDRANT_URL}/collections/{collection_name}/points/search", json=search_payload, headers=headers)
         response.raise_for_status()
-        logging.debug(f"Qdrant response: {response.json()}")
-        embedding = embedding_response.json().get("embeddings")[0]
-        logging.debug(f"Generated embedding: {embedding}")
-        
-        # Search in Qdrant using the embedding
-        search_payload = {
-            "vector": embedding,
-            "top": top_n
-        }
-        logging.debug(f"Search payload: {search_payload}")
-        
-        collection_name = "store_embeddings"  # Replace with the actual collection name
-        headers = {"Authorization": f"Bearer {QDRANT_API_KEY}"}
-        response = requests.post(f"{QDRANT_URL}/collections/{collection_name}/points/search", json=search_payload, headers=headers)
-        response.raise_for_status()
-        
-        results = response.json().get("results", [])
-        
-        # Prepare candidates for LLM processing
+        results = response.json().get("result", [])
+
+        # Step 3: Prepare candidates for response
         candidates = [
-    {
-        "id": res["id"],
-        "score": res["score"],
-        "intent": "Unknown"  # Placeholder for intent, as it's not present in the response
-    }
-    for res in results
-]
+            {
+                "id": res["id"],
+                "score": res["score"],
+                "name": res.get("payload", {}).get("Name", "N/A"),
+                "job_title": res.get("payload", {}).get("Job title", "N/A"),
+                "location": res.get("payload", {}).get("Job location", "N/A"),
+                "summary": res.get("payload", {}).get("Summary", "N/A"),
+                "keywords": res.get("payload", {}).get("Keywords", "N/A"),
+                "experience": res.get("payload", {}).get("Experiences", "N/A")
+            }
+            for res in results
+        ]
         
         logging.info("Successfully retrieved search results")
         logging.debug(f"Search results: {candidates}")
