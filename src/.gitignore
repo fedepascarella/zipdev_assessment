@@ -1,4 +1,4 @@
 .env
 .log
 venv/
-src/debug.log
+debug.log
