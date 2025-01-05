@@ -10,3 +10,8 @@ ollama
 qdrant-client
 pandas
 openpyxl
+uuid
+json
+io
+numpy
+traceloop-sdk
