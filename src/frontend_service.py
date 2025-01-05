@@ -4,6 +4,7 @@ import requests
 import os
 import logging
 from traceloop.sdk import Traceloop
+from traceloop.sdk.decorators import workflow, task
 
 Traceloop.init(disable_batch=True)
 
@@ -79,7 +80,6 @@ trigger_indexing()
 
 # Section: Chat Interface
 st.header("Chat with the Screening Assistant")
-
 @workflow("chat_with_llm")
 def chat_with_llm():
     user_query = st.text_input("Ask a question about the candidates or resumes:")
